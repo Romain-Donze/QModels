@@ -2,6 +2,7 @@
 #define QMODELHELPER_H
 
 #include <QAbstractItemModel>
+#include <QStandardItemModel>
 #include <QQmlPropertyMap>
 #include <QQmlEngine>
 
@@ -24,8 +25,8 @@ public:
 
     // ──────── ABSTRACT MODEL OVERRIDE ──────────
 public:
-    bool setData(const QModelIndex& modelIndex, const QVariant& value, int role) override final;
-    QVariant data(const QModelIndex& modelIndex, int role) const override final;
+    bool setData(const QModelIndex& modelIndex, const QVariant& value, int role=Qt::EditRole) override final;
+    QVariant data(const QModelIndex& modelIndex, int role=Qt::DisplayRole) const override final;
 
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override final;
     QModelIndex parent(const QModelIndex &child) const override final;
@@ -50,15 +51,25 @@ public:
 
     Q_INVOKABLE QQmlPropertyMap* map(int row, int column = 0, const QModelIndex& parent = {});
 
-    Q_INVOKABLE bool updateWhere(const QString& columnName, const QVariant& where, const QString& property, const QVariant& value);
-    Q_INVOKABLE bool updateAll(const QString& property, const QVariant& value);
     Q_INVOKABLE bool set(int pIndex, const QVariantMap& pArray);
     Q_INVOKABLE bool setProperty(int pIndex, const QString& property, const QVariant& value);
+    Q_INVOKABLE bool setProperties(const QString& property, const QVariant& value);
+    Q_INVOKABLE bool setProperties(const QList<int>& indexes, const QString& property, const QVariant& value);
     Q_INVOKABLE QVariantMap get(int row, const QStringList roles = QStringList()) const;
     Q_INVOKABLE QVariant getProperty(int pIndex, const QString& property) const;
+    Q_INVOKABLE QList<QVariant> getProperties(const QString& property) const;
+    Q_INVOKABLE QList<QVariant> getProperties(const QList<int>& indexes, const QString& property) const;
 
     Q_INVOKABLE int indexOf(const QString &columnName, const QVariant& val) const;
+    Q_INVOKABLE QList<int> indexesOf(const QString &columnName, const QVariant& val) const;
     Q_INVOKABLE bool contains(const QString& columnName, const QVariant& val) const;
+
+    Q_INVOKABLE bool equals(QAbstractItemModel* model) const;
+
+    // TODO: backup return QAbstractItemModel*
+    Q_INVOKABLE const QList<QVariantMap>& backup() const;
+    Q_INVOKABLE bool clearBackup();
+    Q_INVOKABLE bool hasChanged() const;
 
 signals:
     void countChanged(int count);
@@ -76,6 +87,9 @@ private:
     QVector<QPair<int, QQmlPropertyMap*>> m_mappers;
 
     mutable QModelHelperFilter* m_proxyModelPrivate;
+
+    QStandardItemModel* m_backupModel=nullptr;
+    mutable QList<QVariantMap> m_backup;
 };
 
 QML_DECLARE_TYPEINFO(QModelHelper, QML_HAS_ATTACHED_PROPERTIES)

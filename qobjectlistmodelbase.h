@@ -102,17 +102,22 @@ protected:
     virtual void content_removeLast() = 0;
 
 private:
+#if QT_VERSION_MAJOR < 6
+    using qolm_size_type = int;
+#else
+    using qolm_size_type = qsizetype;
+#endif
     static void content_append(QQmlListProperty<QObject>* list, QObject* child)
     {
         QObjectListModelBase* that = reinterpret_cast<QObjectListModelBase*>(list->object);
         return that->content_append(child);
     }
-    static int content_count(QQmlListProperty<QObject>* list)
+    static qolm_size_type content_count(QQmlListProperty<QObject>* list)
     {
         QObjectListModelBase* that = reinterpret_cast<QObjectListModelBase*>(list->object);
         return that->content_count();
     }
-    static QObject* content_at(QQmlListProperty<QObject>* list, int index)
+    static QObject* content_at(QQmlListProperty<QObject>* list, qolm_size_type index)
     {
         QObjectListModelBase* that = reinterpret_cast<QObjectListModelBase*>(list->object);
         return that->content_at(index);
@@ -122,7 +127,7 @@ private:
         QObjectListModelBase* that = reinterpret_cast<QObjectListModelBase*>(list->object);
         return that->content_clear();
     }
-    static void content_replace(QQmlListProperty<QObject>* list, int index, QObject* child)
+    static void content_replace(QQmlListProperty<QObject>* list, qolm_size_type index, QObject* child)
     {
         QObjectListModelBase* that = reinterpret_cast<QObjectListModelBase*>(list->object);
         return that->content_replace(index, child);

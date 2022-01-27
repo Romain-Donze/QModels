@@ -166,7 +166,8 @@ private:
 QModelHelper::QModelHelper(QAbstractItemModel* object) :
     QAbstractItemModel(object),
     m_sourceModel(object),
-    m_proxyModelPrivate(new QModelHelperFilter(object))
+    m_proxyModelPrivate(new QModelHelperFilter(object)),
+    m_backupModel(new QStandardItemModel(this))
 {
     if (!object || !m_sourceModel)
         qFatal("ModelHelper must be attached to a QAbstractItemModel*");
@@ -205,7 +206,10 @@ QModelHelper* QModelHelper::wrap(QObject* object)
 
     QModelHelper* helper = model->findChild<QModelHelper*>(QString(), Qt::FindDirectChildrenOnly);
     if(!helper)
+    {
         helper = new QModelHelper(model);
+        QQmlEngine::setObjectOwnership(helper, QQmlEngine::CppOwnership);
+    }
 
     return helper;
 }
@@ -293,64 +297,6 @@ QQmlPropertyMap* QModelHelper::map(int row, int column, const QModelIndex& paren
     return new QModelHelperPropertyMap(row, column, parent, m_sourceModel, this);
 }
 
-bool QModelHelper::updateWhere(const QString& columnName, const QVariant& where, const QString& property, const QVariant& value)
-{
-    bool aRet = false;
-
-    if(where.canConvert(QMetaType::QVariantList))
-    {
-        const QVariantList values = where.toList();
-
-        if(values.count()>0)
-        {
-            int roleIndex = roleForName(property.toUtf8());
-            m_proxyModelPrivate->setFilterRoleName(columnName);
-            for(const QVariant& e : values)
-            {
-                m_proxyModelPrivate->setFilterValue(e);
-
-                for(int i=m_proxyModelPrivate->rowCount()-1;i>=0;i--)
-                {
-                    aRet = m_proxyModelPrivate->setData(m_proxyModelPrivate->index(i, 0), value, roleIndex);
-                }
-            }
-        }
-    }
-    else if(where.canConvert(QMetaType::QString))
-    {
-        if(where.toString()!="0")
-        {
-            int roleIndex = roleForName(property.toUtf8());
-            m_proxyModelPrivate->setFilterRoleName(columnName);
-            m_proxyModelPrivate->setFilterValue(where);
-
-            for(int i=m_proxyModelPrivate->rowCount()-1;i>=0;i--)
-            {
-                aRet = m_proxyModelPrivate->setData(m_proxyModelPrivate->index(i, 0), value, roleIndex);
-            }
-        }
-    }
-    else
-    {
-        qDebug()<<"error";
-    }
-
-    return aRet;
-}
-
-bool QModelHelper::updateAll(const QString& property, const QVariant& value)
-{
-    bool aRet = false;
-
-    int roleIndex = roleForName(property.toUtf8());
-    for(int i=m_sourceModel->rowCount()-1;i>=0;i--)
-    {
-        aRet = m_sourceModel->setData(m_sourceModel->index(i, 0), value, roleIndex);
-    }
-
-    return aRet;
-}
-
 bool QModelHelper::set(int row, const QVariantMap& pArray)
 {
     bool aRet=false;
@@ -373,6 +319,32 @@ bool QModelHelper::setProperty(int pIndex, const QString& property, const QVaria
         return false;
 
     return setData(index(pIndex, 0), value, roleIndex);
+}
+
+bool QModelHelper::setProperties(const QString& property, const QVariant& value)
+{
+    bool aRet = false;
+
+    int roleIndex = roleForName(property.toUtf8());
+    for(int i=rowCount()-1;i>=0;i--)
+    {
+        aRet = setData(index(i, 0), value, roleIndex);
+    }
+
+    return aRet;
+}
+
+bool QModelHelper::setProperties(const QList<int>& indexes, const QString& property, const QVariant& value)
+{
+    bool aRet = false;
+
+    int roleIndex = roleForName(property.toUtf8());
+    for(int index: indexes)
+    {
+        aRet = setData(this->index(index, 0), value, roleIndex);
+    }
+
+    return aRet;
 }
 
 QVariantMap QModelHelper::get(int row, const QStringList roles) const
@@ -406,6 +378,38 @@ QVariant QModelHelper::getProperty(int pIndex, const QString& property) const
     return data(index(pIndex, 0), roleIndex);
 }
 
+QList<QVariant> QModelHelper::getProperties(const QString& property) const
+{
+    QList<QVariant> ret;
+    int roleIndex = roleForName(property.toUtf8());
+
+    if(roleIndex<0)
+        return ret;
+
+    for(int i=0;i<rowCount();i++)
+    {
+        ret+=data(index(i, 0), roleIndex);
+    }
+
+    return ret;
+}
+
+QList<QVariant> QModelHelper::getProperties(const QList<int>& indexes, const QString& property) const
+{
+    QList<QVariant> ret;
+    int roleIndex = roleForName(property.toUtf8());
+
+    if(roleIndex<0)
+        return ret;
+
+    for(int index: indexes)
+    {
+        ret+=data(this->index(index, 0), roleIndex);
+    }
+
+    return ret;
+}
+
 int QModelHelper::indexOf(const QString &columnName, const QVariant &val) const
 {
     m_proxyModelPrivate->setFilterRoleName(columnName);
@@ -414,12 +418,105 @@ int QModelHelper::indexOf(const QString &columnName, const QVariant &val) const
     return m_proxyModelPrivate->filteredToSource(0);
 }
 
+QList<int> QModelHelper::indexesOf(const QString &columnName, const QVariant &val) const
+{
+    QList<int> ret;
+    m_proxyModelPrivate->setFilterRoleName(columnName);
+    m_proxyModelPrivate->setFilterValue(val);
+
+    for(int i=0;i<m_proxyModelPrivate->rowCount();i++)
+    {
+        ret+=m_proxyModelPrivate->filteredToSource(i);
+    }
+
+    return ret;
+}
+
 bool QModelHelper::contains(const QString &columnName, const QVariant &val) const
 {
     m_proxyModelPrivate->setFilterRoleName(columnName);
     m_proxyModelPrivate->setFilterValue(val);
 
     return m_proxyModelPrivate->rowCount()>0 ? true : false;
+}
+
+bool QModelHelper::equals(QAbstractItemModel* model) const
+{
+    if(model==nullptr)
+        return false;
+
+    const QModelHelper* foreignHelper=QModelHelper::wrap(model);
+
+    if(this->rowCount() != foreignHelper->rowCount())
+        return false;
+
+    if(this->roleNames().count() != foreignHelper->roleNames().count())
+        return false;
+
+    for(int i=0; i<this->count(); i++)
+    {
+        QVariantMap a = this->get(i);
+        QVariantMap b = foreignHelper->get(i);
+
+        const QList<QString> aProps=a.keys();
+        const QList<QString> bProps=b.keys();
+
+        if (aProps.count() != bProps.count())
+            return false;
+
+        for(const QString& prop: aProps)
+        {
+            if (a.value(prop) != b.value(prop))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+const QList<QVariantMap>& QModelHelper::backup() const
+{
+    m_backup.clear();
+    m_backup.reserve(this->rowCount());
+
+    for(int i=0; i<this->rowCount(); i++)
+    {
+        m_backup+=this->get(i);
+    }
+
+    return m_backup;
+}
+
+bool QModelHelper::clearBackup()
+{
+    m_backup.clear();
+    return true;
+}
+
+bool QModelHelper::hasChanged() const
+{
+    if(this->rowCount() != m_backup.count())
+        return false;
+
+    for(int i=0; i<this->count(); i++)
+    {
+        QVariantMap a = this->get(i);
+        QVariantMap b = m_backup.at(i);
+
+        const QList<QString> aProps=a.keys();
+        const QList<QString> bProps=b.keys();
+
+        if (aProps.count() != bProps.count())
+            return false;
+
+        for(const QString& prop: aProps)
+        {
+            if (a.value(prop) != b.value(prop))
+                return false;
+        }
+    }
+
+    return true;
 }
 
 // ──────── HELPER PRIVATE ──────────

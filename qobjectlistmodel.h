@@ -17,6 +17,8 @@
 
 #include "qobjectlistmodelbase.h"
 
+#define NO_MODEL_WARNING
+
 #ifndef NO_MODEL_WARNING
 #define qolmWarning QMessageLogger(QT_MESSAGELOG_FILE, QT_MESSAGELOG_LINE, QT_MESSAGELOG_FUNC,"QOLM").warning
 #else

@@ -71,20 +71,25 @@ public:
     const QList<T*>& toList() const { return m_content; }
 
 private:
+#if QT_VERSION_MAJOR < 6
+    using qolp_size_type = int;
+#else
+    using qolp_size_type = qsizetype;
+#endif
     static void list_append(QmlListProperty* self, T* object) {
         QList<T *> * content = static_cast<QVector<T *> *> (self->data);
         if (content != Q_NULLPTR) {
             content->append (object);
         }
     };
-    static int list_count(QmlListProperty* self) {
+    static qolp_size_type list_count(QmlListProperty* self) {
         QList<T*>* content = static_cast<QVector<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->count();
         }
         return 0;
     };
-    static T* list_at(QmlListProperty* self, int index) {
+    static T* list_at(QmlListProperty* self, qolp_size_type index) {
         QList<T*>* content = static_cast<QVector<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->at(index);
@@ -97,7 +102,7 @@ private:
             return content->clear();
         }
     };
-    static void list_replace(QmlListProperty* self, int index, T* object) {
+    static void list_replace(QmlListProperty* self, qolp_size_type index, T* object) {
         QList<T*>* content = static_cast<QVector<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->replace(index, object);
