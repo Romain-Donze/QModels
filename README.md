@@ -367,14 +367,14 @@ Access your models from QML or C++ without views or delegates
 To use the QModelHelper, use it as an attached object of a model (it must be a subclass of QAbstractItemModel, meaning it can originate from c++ or be a ListModel from QML). Or as a wrapper in C++.
 
 ### Attached properties:
-##### count, length, size : int
+#### count, length, size : int
 These properties holds the number of rows in the model.
 
-##### isEmpty : int
+#### isEmpty : int
 This property holds a boolean refering if the model is empty or not (emptyChanged is only emitted when count goes from 0 to x or x to 0.
 
 ### Attached methods
-##### object map(int row, int column = 0, QModelIndex parent = {})
+#### object map(int row, int column = 0, QModelIndex parent = {})
 Returns a live object mapping an index's data of the model. This is an object with read-write properties named as the model's roles.
 If the index doesn't exist in the model, the properties will be `undefined`.
 ```
@@ -397,32 +397,32 @@ ComboBox {
 }
 ```
 
-##### int roleForName(string roleName)
+#### int roleForName(string roleName)
 Returns the role number for the given `roleName`. If no role is found for this name, `-1` is returned.
 
-##### string roleName(int role)
+#### string roleName(int role)
 Returns the role name for the given `role`. If no role name is found for this role, an empty string is returned.
 
-##### var get(int row)
+#### var get(int row)
 Return the item at `row` in the model as a map of all its roles.
 
 This can be used in imperative code when you don't need the live updating provided by the `map` function. Only reading is supported.
 
-##### var getProperty(int row, string roleName)
+#### var getProperty(int row, string roleName)
 Return the data for the given `roleName` of the item at `row` in the model.
 
 Similar to `get(int row)` except that it queries only one role. Prefer this one if you don't need multiple roles for a row.
 
-##### var set(int row, var values)
+#### var set(int row, var values)
 Changes the values at `row` in the list model with the values in `values`. Properties not appearing in newValues are left unchanged.
 
-##### bool setProperty(int row, string property, var value)
+#### bool setProperty(int row, string property, var value)
 Changes the `property` at row in the list model to `value`.
 
-##### int indexOf(string columnName, var value)
+#### int indexOf(string columnName, var value)
 Returns the first row index where value at `columnName` equals `value`.
 
-##### bool contains(string columnName, var value)
+#### bool contains(string columnName, var value)
 Returns true if a row with the value at `columnName` equals `value`. Similar to `int indexOf()`
 
 # QVariantListModel
