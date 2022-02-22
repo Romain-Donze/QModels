@@ -13,12 +13,14 @@ HEADERS += \
     $$PWD/qobjectlistmodel.h \
     $$PWD/qobjectlistmodelbase.h \
     $$PWD/qobjectlistproperty.h \
+    $$PWD/qobjecttreemodel.h \
     $$PWD/qvariantlistmodel.h
 
 SOURCES += \
     $$PWD/qconcatenateproxymodel.cpp \
     $$PWD/qmodelhelper.cpp \
     $$PWD/qmodelqmltypes.cpp \
+    $$PWD/qobjecttreemodel.cpp \
     $$PWD/qvariantlistmodel.cpp
 
 DISTFILES += \

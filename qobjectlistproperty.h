@@ -54,17 +54,16 @@ public:
 
     bool contains(const T* object) const { return m_content.contains(object); }
     int indexOf(const T* object) const { return m_content.indexOf(object); }
-    bool append(T* object) { return m_content.append(object); }
-    bool prepend(T* object) { return m_content.prepend(object); }
-    bool insert(int index, T* object) { return m_content.insert(index, object); }
-    bool append(const QList<T*>& objectList) { return m_content.append(objectList); }
-    bool prepend(const QList<T*>& objectList) { return m_content.prepend(objectList); }
-    bool insert(int idx, const QList<T*>& itemList) { return m_content.insert(idx, itemList); }
-    bool move(int from, int to) { return m_content.move(from, to); }
-    bool remove(const T* object) { return m_content.remove(object); }
-    bool remove(const QList<T*>& objects) { return m_content.remove(objects); }
-    bool remove(int index, int count = 1) { return m_content.remove(index, count); }
-    bool clear() { return m_content.clear(); }
+    void append(T* object) { return m_content.append(object); }
+    void prepend(T* object) { return m_content.prepend(object); }
+    void insert(int index, T* object) { return m_content.insert(index, object); }
+    void append(const QList<T*>& objectList) { return m_content.append(objectList); }
+    void prepend(const QList<T*>& objectList) { return m_content.prepend(objectList); }
+    void insert(int idx, const QList<T*>& itemList) { return m_content.insert(idx, itemList); }
+    void move(int from, int to) { return m_content.move(from, to); }
+    void removeOne(const T* object) { return m_content.removeOne(object); }
+    void removeAt(int index) { return m_content.removeAt(index); }
+    void clear() { return m_content.clear(); }
     T* first() const { return m_content.first(); }
     T* last() const { return m_content.last(); }
 
@@ -77,39 +76,39 @@ private:
     using qolp_size_type = qsizetype;
 #endif
     static void list_append(QmlListProperty* self, T* object) {
-        QList<T *> * content = static_cast<QVector<T *> *> (self->data);
+        QList<T *> * content = static_cast<QList<T*>*> (self->data);
         if (content != Q_NULLPTR) {
             content->append (object);
         }
     };
     static qolp_size_type list_count(QmlListProperty* self) {
-        QList<T*>* content = static_cast<QVector<T*>*>(self->data);
+        QList<T*>* content = static_cast<QList<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->count();
         }
         return 0;
     };
     static T* list_at(QmlListProperty* self, qolp_size_type index) {
-        QList<T*>* content = static_cast<QVector<T*>*>(self->data);
+        QList<T*>* content = static_cast<QList<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->at(index);
         }
         return 0;
     };
     static void list_clear(QmlListProperty* self) {
-        QList<T*>* content = static_cast<QVector<T*>*>(self->data);
+        QList<T*>* content = static_cast<QList<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->clear();
         }
     };
     static void list_replace(QmlListProperty* self, qolp_size_type index, T* object) {
-        QList<T*>* content = static_cast<QVector<T*>*>(self->data);
+        QList<T*>* content = static_cast<QList<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->replace(index, object);
         }
     };
     static void list_removeLast(QmlListProperty* self) {
-        QList<T*>* content = static_cast<QVector<T*>*>(self->data);
+        QList<T*>* content = static_cast<QList<T*>*>(self->data);
         if (content != Q_NULLPTR) {
             return content->removeLast();
         }

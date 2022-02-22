@@ -133,7 +133,7 @@ public:
    }
    void setFilterValue(const QVariant& filterValue)
    {
-       if(filterValue==m_filterValue)
+       if(filterValue==m_filterValue && m_filterValue==filterValue)
            return;
        m_filterValue=filterValue;
        invalidateFilter();
@@ -149,8 +149,10 @@ protected:
    bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override final
    {
        QModelIndex sourceIndex = sourceModel()->index(source_row, 0, source_parent);
-       bool valueAccepted = !m_filterValue.isValid() || ( m_filterValue == sourceModel()->data(sourceIndex, filterRole()) );
-       return valueAccepted;
+       QVariant rowValue = sourceModel()->data(sourceIndex, filterRole());
+       bool valueAccepted = !m_filterValue.isValid() || (m_filterValue==rowValue&&rowValue==m_filterValue);
+       bool baseAcceptsRow = valueAccepted && QSortFilterProxyModel::filterAcceptsRow(source_row, source_parent);
+       return baseAcceptsRow;
    }
 
 private:
@@ -166,14 +168,14 @@ private:
 QModelHelper::QModelHelper(QAbstractItemModel* object) :
     QAbstractItemModel(object),
     m_sourceModel(object),
-    m_proxyModelPrivate(new QModelHelperFilter(object)),
+    m_proxyModelPrivate(new QModelHelperFilter(this)),
     m_backupModel(new QStandardItemModel(this))
 {
     if (!object || !m_sourceModel)
         qFatal("ModelHelper must be attached to a QAbstractItemModel*");
     else
     {
-        m_proxyModelPrivate->setSourceModel(m_sourceModel);
+        m_proxyModelPrivate->setSourceModel(this);
 
         connect(m_sourceModel, &QAbstractItemModel::dataChanged, this, &QAbstractItemModel::dataChanged);
         connect(m_sourceModel, &QAbstractItemModel::headerDataChanged, this, &QAbstractItemModel::headerDataChanged);
@@ -415,7 +417,9 @@ int QModelHelper::indexOf(const QString &columnName, const QVariant &val) const
     m_proxyModelPrivate->setFilterRoleName(columnName);
     m_proxyModelPrivate->setFilterValue(val);
 
-    return m_proxyModelPrivate->filteredToSource(0);
+    int ret=m_proxyModelPrivate->filteredToSource(0);
+
+    return ret;
 }
 
 QList<int> QModelHelper::indexesOf(const QString &columnName, const QVariant &val) const
@@ -437,7 +441,9 @@ bool QModelHelper::contains(const QString &columnName, const QVariant &val) cons
     m_proxyModelPrivate->setFilterRoleName(columnName);
     m_proxyModelPrivate->setFilterValue(val);
 
-    return m_proxyModelPrivate->rowCount()>0 ? true : false;
+    bool ret=m_proxyModelPrivate->rowCount()>0 ? true : false;
+
+    return ret;
 }
 
 bool QModelHelper::equals(QAbstractItemModel* model) const
@@ -496,7 +502,7 @@ bool QModelHelper::clearBackup()
 bool QModelHelper::hasChanged() const
 {
     if(this->rowCount() != m_backup.count())
-        return false;
+        return true;
 
     for(int i=0; i<this->count(); i++)
     {
@@ -507,16 +513,16 @@ bool QModelHelper::hasChanged() const
         const QList<QString> bProps=b.keys();
 
         if (aProps.count() != bProps.count())
-            return false;
+            return true;
 
         for(const QString& prop: aProps)
         {
             if (a.value(prop) != b.value(prop))
-                return false;
+                return true;
         }
     }
 
-    return true;
+    return false;
 }
 
 // ──────── HELPER PRIVATE ──────────
