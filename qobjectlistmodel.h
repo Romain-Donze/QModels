@@ -25,11 +25,6 @@
 #define qolmWarning QMessageLogger().noDebug
 #endif
 
-#define Q_DECLARE_OBJECT_MODEL(ModelName, ObjectName) \
-    class ModelName : public QObjectListModel<ObjectName> { \
-    Q_OBJECT \
-    public: ModelName(QObject* parent = nullptr):QObjectListModel<ObjectName>(parent){} }; \
-
 template<class T>
 class QObjectListModel : public QObjectListModelBase
 {

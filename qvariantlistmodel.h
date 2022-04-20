@@ -7,12 +7,14 @@
 #include <QList>
 #include <QAbstractListModel>
 #include <QQmlParserStatus>
+#include <QtQml>
 #include <QDebug>
 
 class QVariantListModel: public QAbstractListModel,
                          public QQmlParserStatus
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(VariantListModel)
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(int count READ count NOTIFY countChanged FINAL)
     Q_PROPERTY(int length READ count NOTIFY countChanged FINAL)

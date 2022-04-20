@@ -1,11 +1,13 @@
 #ifndef QCONCATENATEPROXYMODEL_H
 #define QCONCATENATEPROXYMODEL_H
 
+#include <QtQml>
 #include <QAbstractListModel>
 
 class QConcatenateProxyModel : public QAbstractListModel
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(ConcatenateProxyModel)
 public:
     explicit QConcatenateProxyModel(QObject *parent = nullptr);
 

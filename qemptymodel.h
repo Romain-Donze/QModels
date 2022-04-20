@@ -1,11 +1,13 @@
 #ifndef QEMPTYMODEL_H
 #define QEMPTYMODEL_H
 
+#include <QtQml>
 #include <QAbstractItemModel>
 
 class QEmptyModel : public QAbstractItemModel
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(EmptyModel)
 
 public:
     explicit QEmptyModel(QObject *parent = 0) : QAbstractItemModel(parent) {}

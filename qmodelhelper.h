@@ -10,6 +10,8 @@ class QModelHelperFilter;
 class QModelHelper : public QAbstractItemModel
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(ModelHelper)
+    QML_UNCREATABLE("Attached")
     Q_PROPERTY(int count READ count NOTIFY countChanged FINAL)
     Q_PROPERTY(int length READ count NOTIFY countChanged FINAL)
     Q_PROPERTY(int size READ count NOTIFY countChanged FINAL)

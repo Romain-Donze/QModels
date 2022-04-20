@@ -10,6 +10,7 @@ HEADERS += \
     $$PWD/qconcatenateproxymodel.h \
     $$PWD/qemptymodel.h \
     $$PWD/qmodelhelper.h \
+    $$PWD/qmodelqmltypes.h \
     $$PWD/qobjectlistmodel.h \
     $$PWD/qobjectlistmodelbase.h \
     $$PWD/qobjectlistproperty.h \

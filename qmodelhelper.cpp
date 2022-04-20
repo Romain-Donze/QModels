@@ -22,7 +22,7 @@ public:
         connect(model, &QAbstractItemModel::rowsInserted, this, &QModelHelperPropertyMap::onRowsInserted);
         connect(model, &QAbstractItemModel::rowsRemoved, this, &QModelHelperPropertyMap::onRowsRemoved);
         connect(model, &QAbstractItemModel::columnsInserted, this, &QModelHelperPropertyMap::onColumnsInserted);
-        connect(model, &QAbstractItemModel::columnsInserted, this, &QModelHelperPropertyMap::onColumnsRemoved);
+        connect(model, &QAbstractItemModel::columnsRemoved, this, &QModelHelperPropertyMap::onColumnsRemoved);
         update();
     }
 
@@ -117,7 +117,7 @@ public:
    QModelHelperFilter(QObject *parent) :
        QSortFilterProxyModel(parent)
    {
-
+       connect(this, &QAbstractItemModel::modelReset, this, &QModelHelperFilter::updateRoles);
    }
 
    void setFilterRoleName(const QString& filterRoleName)
@@ -125,24 +125,30 @@ public:
        if(filterRoleName==m_filterRoleName)
            return;
        m_filterRoleName=filterRoleName;
-       QList<int> filterRoles = roleNames().keys(m_filterRoleName.toUtf8());
-       if (!filterRoles.empty())
-       {
-           setFilterRole(filterRoles.first());
-       }
+       updateRoles();
    }
    void setFilterValue(const QVariant& filterValue)
    {
        if(filterValue==m_filterValue && m_filterValue==filterValue)
            return;
        m_filterValue=filterValue;
-       invalidateFilter();
+       invalidate();
    }
    int filteredToSource(int proxyRow) const
    {
        QModelIndex proxyIndex = index(proxyRow, 0);
        QModelIndex sourceIndex = mapToSource(proxyIndex);
        return sourceIndex.isValid() ? sourceIndex.row() : -1;
+   }
+
+   void setSourceModel(QAbstractItemModel *sourceModel) override
+   {
+       if (sourceModel && (sourceModel->roleNames().isEmpty())) { // workaround for when a model has no roles and roles are added when the model is populated (ListModel)
+           // QTBUG-57971
+           connect(sourceModel, &QAbstractItemModel::rowsInserted, this, &QModelHelperFilter::initRoles);
+           connect(sourceModel, &QAbstractItemModel::modelReset, this, &QModelHelperFilter::initRoles);
+       }
+       QSortFilterProxyModel::setSourceModel(sourceModel);
    }
 
 protected:
@@ -153,6 +159,24 @@ protected:
        bool valueAccepted = !m_filterValue.isValid() || (m_filterValue==rowValue&&rowValue==m_filterValue);
        bool baseAcceptsRow = valueAccepted && QSortFilterProxyModel::filterAcceptsRow(source_row, source_parent);
        return baseAcceptsRow;
+   }
+   void initRoles()
+   {
+       if(sourceModel() && !sourceModel()->roleNames().isEmpty())
+       {
+           disconnect(sourceModel(), &QAbstractItemModel::rowsInserted, this, &QModelHelperFilter::initRoles);
+           disconnect(sourceModel(), &QAbstractItemModel::modelReset, this, &QModelHelperFilter::initRoles);
+           resetInternalData();
+           updateRoles();
+       }
+   }
+   void updateRoles()
+   {
+       QList<int> filterRoles = roleNames().keys(m_filterRoleName.toUtf8());
+       if (!filterRoles.empty())
+       {
+           setFilterRole(filterRoles.first());
+       }
    }
 
 private:
@@ -202,7 +226,7 @@ QModelHelper* QModelHelper::wrap(QObject* object)
     QAbstractItemModel* model = qobject_cast<QAbstractItemModel*>(object);
     if (!model)
     {
-        qFatal("ModelHelper must be attached to a QAbstractItemModel*");
+        qFatal("QModelHelper must be attached to a QAbstractItemModel*");
         return nullptr;
     }
 
