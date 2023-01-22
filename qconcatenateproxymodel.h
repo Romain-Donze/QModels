@@ -15,7 +15,6 @@ public:
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const final override;
-    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     virtual QHash<int, QByteArray> roleNames() const override;
 
     void addSourceModel(QAbstractItemModel *sourceModel);

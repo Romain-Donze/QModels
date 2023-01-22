@@ -58,11 +58,6 @@ int QConcatenateProxyModel::rowCount(const QModelIndex &parent) const
     return count;
 }
 
-int QConcatenateProxyModel::columnCount(const QModelIndex &index) const
-{
-    return index.isValid() ? 0 : roleNames().count();
-}
-
 QHash<int, QByteArray> QConcatenateProxyModel::roleNames() const
 {
     if(m_sourceModels.isEmpty())

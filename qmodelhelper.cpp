@@ -1,6 +1,9 @@
 #include "qmodelhelper.h"
+#include "qmodels_log.h"
 
 #include <QSortFilterProxyModel>
+#include <QElapsedTimer>
+#include <QDateTime>
 
 //────────────────────────────────────────────────────────────────────────────────────────────────
 // QModelHelperPropertyMap
@@ -108,83 +111,6 @@ private:
 };
 
 //────────────────────────────────────────────────────────────────────────────────────────────────
-// QModelHelperFilter
-//────────────────────────────────────────────────────────────────────────────────────────────────
-
-class QModelHelperFilter : public QSortFilterProxyModel
-{
-public:
-   QModelHelperFilter(QObject *parent) :
-       QSortFilterProxyModel(parent)
-   {
-       connect(this, &QAbstractItemModel::modelReset, this, &QModelHelperFilter::updateRoles);
-   }
-
-   void setFilterRoleName(const QString& filterRoleName)
-   {
-       if(filterRoleName==m_filterRoleName)
-           return;
-       m_filterRoleName=filterRoleName;
-       updateRoles();
-   }
-   void setFilterValue(const QVariant& filterValue)
-   {
-       if(filterValue==m_filterValue && m_filterValue==filterValue)
-           return;
-       m_filterValue=filterValue;
-       invalidate();
-   }
-   int filteredToSource(int proxyRow) const
-   {
-       QModelIndex proxyIndex = index(proxyRow, 0);
-       QModelIndex sourceIndex = mapToSource(proxyIndex);
-       return sourceIndex.isValid() ? sourceIndex.row() : -1;
-   }
-
-   void setSourceModel(QAbstractItemModel *sourceModel) override
-   {
-       if (sourceModel && (sourceModel->roleNames().isEmpty())) { // workaround for when a model has no roles and roles are added when the model is populated (ListModel)
-           // QTBUG-57971
-           connect(sourceModel, &QAbstractItemModel::rowsInserted, this, &QModelHelperFilter::initRoles);
-           connect(sourceModel, &QAbstractItemModel::modelReset, this, &QModelHelperFilter::initRoles);
-       }
-       QSortFilterProxyModel::setSourceModel(sourceModel);
-   }
-
-protected:
-   bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override final
-   {
-       QModelIndex sourceIndex = sourceModel()->index(source_row, 0, source_parent);
-       QVariant rowValue = sourceModel()->data(sourceIndex, filterRole());
-       bool valueAccepted = !m_filterValue.isValid() || (m_filterValue==rowValue&&rowValue==m_filterValue);
-       bool baseAcceptsRow = valueAccepted && QSortFilterProxyModel::filterAcceptsRow(source_row, source_parent);
-       return baseAcceptsRow;
-   }
-   void initRoles()
-   {
-       if(sourceModel() && !sourceModel()->roleNames().isEmpty())
-       {
-           disconnect(sourceModel(), &QAbstractItemModel::rowsInserted, this, &QModelHelperFilter::initRoles);
-           disconnect(sourceModel(), &QAbstractItemModel::modelReset, this, &QModelHelperFilter::initRoles);
-           resetInternalData();
-           updateRoles();
-       }
-   }
-   void updateRoles()
-   {
-       QList<int> filterRoles = roleNames().keys(m_filterRoleName.toUtf8());
-       if (!filterRoles.empty())
-       {
-           setFilterRole(filterRoles.first());
-       }
-   }
-
-private:
-   QString m_filterRoleName;
-   QVariant m_filterValue;
-};
-
-//────────────────────────────────────────────────────────────────────────────────────────────────
 // QModelHelper
 //────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -192,15 +118,15 @@ private:
 QModelHelper::QModelHelper(QAbstractItemModel* object) :
     QAbstractItemModel(object),
     m_sourceModel(object),
-    m_proxyModelPrivate(new QModelHelperFilter(this)),
     m_backupModel(new QStandardItemModel(this))
 {
     if (!object || !m_sourceModel)
-        qFatal("ModelHelper must be attached to a QAbstractItemModel*");
+    {
+        QMODELSLOG_CRITICAL()<<object<<m_sourceModel;
+        QMODELSLOG_FATAL("QModelHelper must be attached to a QAbstractItemModel*");
+    }
     else
     {
-        m_proxyModelPrivate->setSourceModel(this);
-
         connect(m_sourceModel, &QAbstractItemModel::dataChanged, this, &QAbstractItemModel::dataChanged);
         connect(m_sourceModel, &QAbstractItemModel::headerDataChanged, this, &QAbstractItemModel::headerDataChanged);
         connect(m_sourceModel, &QAbstractItemModel::rowsInserted, this, &QAbstractItemModel::rowsInserted);
@@ -226,7 +152,8 @@ QModelHelper* QModelHelper::wrap(QObject* object)
     QAbstractItemModel* model = qobject_cast<QAbstractItemModel*>(object);
     if (!model)
     {
-        qFatal("QModelHelper must be attached to a QAbstractItemModel*");
+        QMODELSLOG_CRITICAL()<<object<<model;
+        QMODELSLOG_FATAL("QModelHelper must be attached to a QAbstractItemModel*");
         return nullptr;
     }
 
@@ -289,7 +216,7 @@ QByteArray QModelHelper::roleName(int role) const
 // ──────── ABSTRACT MODEL PRIVATE ──────────
 void QModelHelper::countInvalidate()
 {
-    int aCount = count();
+    const int aCount = count();
     bool aEmptyChanged=false;
 
     if(m_count==aCount)
@@ -308,9 +235,6 @@ void QModelHelper::countInvalidate()
 // ──────── PUBLIC API ──────────
 QQmlPropertyMap* QModelHelper::map(int row, int column, const QModelIndex& parent)
 {
-    if (!m_sourceModel)
-        return nullptr;
-
     if (column == 0 && !parent.isValid()) {
         QQmlPropertyMap* mapper = mapperForRow(row);
         if (!mapper) {
@@ -323,170 +247,411 @@ QQmlPropertyMap* QModelHelper::map(int row, int column, const QModelIndex& paren
     return new QModelHelperPropertyMap(row, column, parent, m_sourceModel, this);
 }
 
+// ──────── PUBLIC API ──────────
 bool QModelHelper::set(int row, const QVariantMap& pArray)
 {
-    bool aRet=false;
-    if (row >= count() || row < 0)
-        return aRet;
-    const QList<QString> keys = pArray.keys();
-    for(const QString& key : keys)
-    {
-        aRet = setProperty(row,key,pArray.value(key));
-    }
-
-    return aRet;
+    return set(m_sourceModel, row, pArray);
 }
 
-bool QModelHelper::setProperty(int pIndex, const QString& property, const QVariant& value)
+bool QModelHelper::setProperty(int row, const QString& property, const QVariant& value)
 {
-    int roleIndex = roleForName(property.toUtf8());
-
-    if(roleIndex<0)
-        return false;
-
-    return setData(index(pIndex, 0), value, roleIndex);
+    return setProperty(m_sourceModel, row, property, value);
 }
 
 bool QModelHelper::setProperties(const QString& property, const QVariant& value)
 {
-    bool aRet = false;
-
-    int roleIndex = roleForName(property.toUtf8());
-    for(int i=rowCount()-1;i>=0;i--)
-    {
-        aRet = setData(index(i, 0), value, roleIndex);
-    }
-
-    return aRet;
+    return setProperties(m_sourceModel, property, value);
 }
 
 bool QModelHelper::setProperties(const QList<int>& indexes, const QString& property, const QVariant& value)
 {
-    bool aRet = false;
+    return setProperties(m_sourceModel, indexes, property, value);
+}
 
-    int roleIndex = roleForName(property.toUtf8());
-    for(int index: indexes)
+QVariantMap QModelHelper::get(int row, const QStringList roles) const
+{
+    return get(m_sourceModel, row, roles);
+}
+
+QVariant QModelHelper::getProperty(int row, const QString& property) const
+{
+    return getProperty(m_sourceModel, row, property);
+}
+
+QVariantList QModelHelper::getProperties(const QString& property) const
+{
+    return getProperties(m_sourceModel, property);
+}
+
+QVariantList QModelHelper::getProperties(const QList<int>& indexes, const QString& property) const
+{
+    return getProperties(m_sourceModel, indexes, property);
+}
+
+int QModelHelper::indexOf(const QString &columnName, const QVariant &val, bool isSorted) const
+{
+    return indexOf(m_sourceModel, columnName, val, isSorted);
+}
+
+QList<int> QModelHelper::indexesOf(const QString &columnName, const QVariant &val) const
+{
+    return indexesOf(m_sourceModel, columnName, val);
+}
+
+int QModelHelper::count(const QString &columnName, const QVariant &val) const
+{
+    return count(m_sourceModel, columnName, val);
+}
+
+bool QModelHelper::contains(const QString &columnName, const QVariant &val, bool isSorted) const
+{
+    return contains(m_sourceModel, columnName, val, isSorted);
+}
+
+bool QModelHelper::isSorted(const QString &columnName) const
+{
+    return isSorted(m_sourceModel, columnName);
+}
+
+bool QModelHelper::equals(QAbstractItemModel* model) const
+{
+    return equals(m_sourceModel, model);
+}
+
+QVariantList QModelHelper::toVariantList() const
+{
+    return toVariantList(m_sourceModel);
+}
+
+const QVariantList& QModelHelper::backup() const
+{
+    m_backup=toVariantList(m_sourceModel);
+    return m_backup;
+}
+
+bool QModelHelper::clearBackup()
+{
+    m_backup.clear();
+    return true;
+}
+
+bool QModelHelper::hasChanged() const
+{
+    if(count() != m_backup.count())
+        return true;
+
+    for(int i=0; i<count(); ++i)
     {
-        aRet = setData(this->index(index, 0), value, roleIndex);
+        const QVariantMap& a = get(i);
+        const QVariantMap& b = m_backup.at(i).toMap();
+
+        const QList<QString> aProps=a.keys();
+        const QList<QString> bProps=b.keys();
+
+        if (aProps.count() != bProps.count())
+            return true;
+
+        for(const QString& prop: aProps)
+        {
+            if (a.value(prop) != b.value(prop))
+                return true;
+        }
+    }
+
+    return false;
+}
+
+// ──────── PUBLIC STATIC API ──────────
+int QModelHelper::roleForName(QAbstractItemModel* model, const QByteArray& name)
+{
+    if(!model)
+        return -1;
+
+    return model->roleNames().key(name, -1);
+}
+
+QByteArray QModelHelper::roleName(QAbstractItemModel* model, int role)
+{
+    if(!model)
+        return QByteArray();
+
+    return model->roleNames().value(role,"");
+}
+
+bool QModelHelper::set(QAbstractItemModel* model, int row, const QVariantMap& pArray)
+{
+    if(!model)
+        return false;
+
+    bool aRet=false;
+    if (row >= count(model) || row < 0)
+        return aRet;
+    for (QVariantMap::const_iterator it = pArray.begin(); it != pArray.end(); ++it)
+    {
+        aRet = setProperty(model, row,it.key(),it.value());
     }
 
     return aRet;
 }
 
-QVariantMap QModelHelper::get(int row, const QStringList roles) const
+bool QModelHelper::setProperty(QAbstractItemModel* model, int row, const QString& property, const QVariant& value)
 {
-    QHash<int,QByteArray> names = roleNames();
+    if(!model)
+        return false;
+
+    int roleIndex = roleForName(model, property.toUtf8());
+
+    if(roleIndex<0)
+        return false;
+
+    return model->setData(model->index(row, 0), value, roleIndex);
+}
+
+bool QModelHelper::setProperties(QAbstractItemModel* model, const QString& property, const QVariant& value)
+{
+    if(!model)
+        return false;
+
+    bool aRet = false;
+
+    int roleIndex = roleForName(model, property.toUtf8());
+    for(int i=count(model)-1;i>=0;i--)
+    {
+        aRet = model->setData(model->index(i, 0), value, roleIndex);
+    }
+
+    return aRet;
+}
+
+bool QModelHelper::setProperties(QAbstractItemModel* model, const QList<int>& indexes, const QString& property, const QVariant& value)
+{
+    if(!model)
+        return false;
+
+    bool aRet = false;
+
+    int roleIndex = roleForName(model, property.toUtf8());
+    for(int index: indexes)
+    {
+        aRet = model->setData(model->index(index, 0), value, roleIndex);
+    }
+
+    return aRet;
+}
+
+QVariantMap QModelHelper::get(QAbstractItemModel* model, int row, const QStringList roles)
+{
+    if(!model)
+        return QVariantMap();
+
+    QHash<int,QByteArray> names = model->roleNames();
     if(!roles.isEmpty())
     {
         QHash<int,QByteArray> tmpNames=names;
         names.clear();
         for(const QString& role: roles)
-            names[tmpNames.key(role.toUtf8())]=role.toUtf8();
+        {
+            const QByteArray roleName = role.toUtf8();
+            names[tmpNames.key(roleName)]=roleName;
+        }
     }
 
     QVariantMap map;
-    QModelIndex modelIndex = index(row, 0);
+    QModelIndex modelIndex = model->index(row, 0);
     for (QHash<int, QByteArray>::iterator it = names.begin(); it != names.end(); ++it)
     {
-        map.insert(it.value(), data(modelIndex, it.key()));
+        map.insert(it.value(), model->data(modelIndex, it.key()));
     }
 
     return map;
 }
 
-QVariant QModelHelper::getProperty(int pIndex, const QString& property) const
+QVariant QModelHelper::getProperty(QAbstractItemModel* model, int row, const QString& property)
 {
-    int roleIndex = roleForName(property.toUtf8());
+    if(!model)
+        return QVariant();
+
+    int roleIndex = roleForName(model, property.toUtf8());
 
     if(roleIndex<0)
         return QVariant();
 
-    return data(index(pIndex, 0), roleIndex);
+    return model->data(model->index(row, 0), roleIndex);
 }
 
-QList<QVariant> QModelHelper::getProperties(const QString& property) const
+QVariantList QModelHelper::getProperties(QAbstractItemModel* model, const QString& property)
 {
-    QList<QVariant> ret;
-    int roleIndex = roleForName(property.toUtf8());
+    if(!model)
+        return QVariantList();
+
+    QVariantList ret;
+    int roleIndex = roleForName(model, property.toUtf8());
 
     if(roleIndex<0)
         return ret;
 
-    for(int i=0;i<rowCount();i++)
+    ret.reserve(model->rowCount());
+    for(int i=0;i<count(model);++i)
     {
-        ret+=data(index(i, 0), roleIndex);
+        ret+=model->data(model->index(i, 0), roleIndex);
     }
 
     return ret;
 }
 
-QList<QVariant> QModelHelper::getProperties(const QList<int>& indexes, const QString& property) const
+QVariantList QModelHelper::getProperties(QAbstractItemModel* model, const QList<int>& indexes, const QString& property)
 {
-    QList<QVariant> ret;
-    int roleIndex = roleForName(property.toUtf8());
+    if(!model)
+        return QVariantList();
 
+    int roleIndex = roleForName(model, property.toUtf8());
+
+    QVariantList ret;
     if(roleIndex<0)
         return ret;
 
+    ret.reserve(indexes.size());
     for(int index: indexes)
     {
-        ret+=data(this->index(index, 0), roleIndex);
+        ret+=model->data(model->index(index, 0), roleIndex);
     }
 
     return ret;
 }
 
-int QModelHelper::indexOf(const QString &columnName, const QVariant &val) const
+int QModelHelper::indexOf(QAbstractItemModel* model, int role, const QVariant& val, bool isSorted)
 {
-    m_proxyModelPrivate->setFilterRoleName(columnName);
-    m_proxyModelPrivate->setFilterValue(val);
+    int ret = -1;
+    if(!model)
+        return ret;
 
-    int ret=m_proxyModelPrivate->filteredToSource(0);
+    if(isSorted)
+    {
+        int lower = 0;
+        int upper = (int (model->rowCount()) -1);
+
+        while (lower <= upper)
+        {
+            const int middle = (lower + (upper - lower) / 2);
+            const QVariant& var = model->data(model->index(middle,0), role);
+            if (var == val)
+            {
+                ret = middle;
+                break;
+            }
+            else if (var < val)
+            {
+                lower = middle + 1;
+            }
+            else
+            {
+                upper = middle - 1;
+            }
+        }
+    }
+    else
+    {
+        for(int row=0; row<model->rowCount(); ++row)
+        {
+            const QVariant& var = model->data(model->index(row,0), role);
+            if(var == val)
+            {
+                ret = row;
+                break;
+            }
+        }
+    }
 
     return ret;
 }
-
-QList<int> QModelHelper::indexesOf(const QString &columnName, const QVariant &val) const
+QList<int> QModelHelper::indexesOf(QAbstractItemModel* model, int role, const QVariant& val)
 {
+    if(!model)
+        return QList<int>();
+
     QList<int> ret;
-    m_proxyModelPrivate->setFilterRoleName(columnName);
-    m_proxyModelPrivate->setFilterValue(val);
 
-    for(int i=0;i<m_proxyModelPrivate->rowCount();i++)
+    for(int i=0; i<model->rowCount(); ++i)
     {
-        ret+=m_proxyModelPrivate->filteredToSource(i);
+        const QVariant& var = model->data(model->index(i,0), role);
+        if(var == val)
+        {
+            ret += i;
+        }
     }
 
     return ret;
 }
-
-bool QModelHelper::contains(const QString &columnName, const QVariant &val) const
+int QModelHelper::count(QAbstractItemModel* model, int role, const QVariant& val)
 {
-    m_proxyModelPrivate->setFilterRoleName(columnName);
-    m_proxyModelPrivate->setFilterValue(val);
+    return indexesOf(model, role, val).size();
+}
+bool QModelHelper::contains(QAbstractItemModel* model, int role, const QVariant& val, bool isSorted)
+{
+    return indexOf(model, role, val, isSorted) >= 0;
+}
+bool QModelHelper::isSorted(QAbstractItemModel* model, int role)
+{
+    if(!model)
+        return false;
 
-    bool ret=m_proxyModelPrivate->rowCount()>0 ? true : false;
+    for(int i=0; i<model->rowCount(); ++i)
+    {
+        if(i>0)
+        {
+            const QVariant& var = model->data(model->index(i,0), role);
+            const QVariant& varPrev = model->data(model->index(i-1,0), role);
+            if(var < varPrev)
+            {
+                return false;
+            }
+        }
+    }
 
-    return ret;
+    return true;
 }
 
-bool QModelHelper::equals(QAbstractItemModel* model) const
+int QModelHelper::indexOf(QAbstractItemModel* model, const QString &columnName, const QVariant& val, bool isSorted)
 {
-    if(model==nullptr)
+    int roleIndex = roleForName(model, columnName.toUtf8());
+    return indexOf(model, roleIndex, val, isSorted);
+}
+QList<int> QModelHelper::indexesOf(QAbstractItemModel* model, const QString &columnName, const QVariant& val)
+{
+    int roleIndex = roleForName(model, columnName.toUtf8());
+    return indexesOf(model, roleIndex, val);
+}
+int QModelHelper::count(QAbstractItemModel* model, const QString &columnName, const QVariant& val)
+{
+    int roleIndex = roleForName(model, columnName.toUtf8());
+    return count(model, roleIndex, val);
+}
+bool QModelHelper::contains(QAbstractItemModel* model, const QString& columnName, const QVariant& val, bool isSorted)
+{
+    int roleIndex = roleForName(model, columnName.toUtf8());
+    return contains(model, roleIndex, val, isSorted);
+}
+bool QModelHelper::isSorted(QAbstractItemModel* model, const QString& columnName)
+{
+    int roleIndex = roleForName(model, columnName.toUtf8());
+    return isSorted(model, roleIndex);
+}
+
+bool QModelHelper::equals(QAbstractItemModel* srcModel, QAbstractItemModel* compModel)
+{
+    if(srcModel==nullptr || compModel==nullptr)
         return false;
 
-    const QModelHelper* foreignHelper=QModelHelper::wrap(model);
-
-    if(this->rowCount() != foreignHelper->rowCount())
+    if(srcModel->rowCount() != compModel->rowCount())
         return false;
 
-    if(this->roleNames().count() != foreignHelper->roleNames().count())
+    if(srcModel->roleNames().count() != compModel->roleNames().count())
         return false;
 
-    for(int i=0; i<this->count(); i++)
+    for(int i=0; i<srcModel->rowCount(); ++i)
     {
-        QVariantMap a = this->get(i);
-        QVariantMap b = foreignHelper->get(i);
+        const QVariantMap& a = QModelHelper::get(srcModel, i);
+        const QVariantMap& b = QModelHelper::get(compModel, i);
 
         const QList<QString> aProps=a.keys();
         const QList<QString> bProps=b.keys();
@@ -504,49 +669,24 @@ bool QModelHelper::equals(QAbstractItemModel* model) const
     return true;
 }
 
-const QList<QVariantMap>& QModelHelper::backup() const
+QVariantList QModelHelper::toVariantList(QAbstractItemModel* model)
 {
-    m_backup.clear();
-    m_backup.reserve(this->rowCount());
+    QVariantList variantList;
+    variantList.reserve(model->rowCount());
 
-    for(int i=0; i<this->rowCount(); i++)
+    const QHash<int,QByteArray> names = model->roleNames();
+    for(int i=0; i<model->rowCount(); ++i)
     {
-        m_backup+=this->get(i);
-    }
-
-    return m_backup;
-}
-
-bool QModelHelper::clearBackup()
-{
-    m_backup.clear();
-    return true;
-}
-
-bool QModelHelper::hasChanged() const
-{
-    if(this->rowCount() != m_backup.count())
-        return true;
-
-    for(int i=0; i<this->count(); i++)
-    {
-        QVariantMap a = this->get(i);
-        QVariantMap b = m_backup.at(i);
-
-        const QList<QString> aProps=a.keys();
-        const QList<QString> bProps=b.keys();
-
-        if (aProps.count() != bProps.count())
-            return true;
-
-        for(const QString& prop: aProps)
+        QVariantMap map;
+        const QModelIndex modelIndex = model->index(i, 0);
+        for (QHash<int, QByteArray>::const_iterator it = names.begin(); it != names.end(); ++it)
         {
-            if (a.value(prop) != b.value(prop))
-                return true;
+            map.insert(it.value(), model->data(modelIndex, it.key()));
         }
+        variantList.append(map);
     }
 
-    return false;
+    return variantList;
 }
 
 // ──────── HELPER PRIVATE ──────────

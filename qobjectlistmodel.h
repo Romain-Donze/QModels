@@ -12,18 +12,18 @@
 #include <QtCore/QString>
 #include <QtCore/QVariant>
 #include <QtCore/QVector>
+#include <QQmlEngine>
 
 #include <functional>
 
 #include "qobjectlistmodelbase.h"
+#include "qmodels_log.h"
 
-#define NO_MODEL_WARNING
-
-#ifndef NO_MODEL_WARNING
-#define qolmWarning QMessageLogger(QT_MESSAGELOG_FILE, QT_MESSAGELOG_LINE, QT_MESSAGELOG_FUNC,"QOLM").warning
-#else
-#define qolmWarning QMessageLogger().noDebug
-#endif
+#define Q_CONSTANT_OLM_PROPERTY(TYPE, name, Name, ...) \
+    private:    Q_PROPERTY (QObjectListModelBase* name READ get##Name CONSTANT FINAL) \
+    public:     QObjectListModel<TYPE>* get##Name (void) const { return m_##name; } \
+    protected:  QObjectListModel<TYPE>* m_##name; \
+    private:
 
 template<class T>
 class QObjectListModel : public QObjectListModelBase
@@ -77,7 +77,7 @@ public:
             }
             else if(roleNamesBlacklist.contains(propName))
             {
-                qolmWarning() << "Can't have" << propName << "as a role name in" << qPrintable(templateClassName())
+                QMODELSLOG_WARNING() << "Can't have" << propName << "as a role name in" << qPrintable(templateClassName())
                            << ", because it's a blacklisted keywork in QML!. "
                               "Please don't use any of the following words "
                               "when declaring your Q_PROPERTY:(id, index, "
@@ -93,7 +93,7 @@ public:
     }
     static const QString& emptyStr()
     {
-        static const QString ret = QStringLiteral("");
+        static const QString ret = "";
         return ret;
     }
     static const QByteArray& emptyBA()
@@ -117,7 +117,9 @@ public:
     bool setData(const QModelIndex& modelIndex, const QVariant& value, int role) override final
     {
         bool ret = false;
-        T* item = at(modelIndex.row());
+        if(!modelIndex.isValid())
+            return ret;
+        T* item = get(modelIndex.row());
         const QByteArray roleName = (role != Qt::DisplayRole ? m_roleNames.value(role, emptyBA()) : m_displayRoleName);
         if(item != nullptr && role != baseRole() && !roleName.isEmpty())
             ret = item->setProperty(roleName, value);
@@ -126,7 +128,9 @@ public:
     QVariant data(const QModelIndex& modelIndex, int role) const override final
     {
         QVariant ret;
-        T* item = at(modelIndex.row());
+        if(!modelIndex.isValid())
+            return ret;
+        T* item = get(modelIndex.row());
         const QByteArray roleName = (role != Qt::DisplayRole ? m_roleNames.value(role, emptyBA()) : m_displayRoleName);
         if(item != nullptr && !roleName.isEmpty())
             ret.setValue(role != baseRole() ? item->property(roleName) : QVariant::fromValue(static_cast<QObject*>(item)));
@@ -149,10 +153,6 @@ public:
     {
         return (!parent.isValid() ? m_objects.count() : 0);
     }
-    int columnCount(const QModelIndex &parent = QModelIndex()) const override final
-    {
-        return (!parent.isValid() ? roleNames().count() : 0);
-    }
 
     // ──────── ABSTRACT MODEL PRIVATE ──────────
 protected:
@@ -161,11 +161,18 @@ protected:
         if(item != nullptr)
         {
             if(!item->parent())
+            {
                 item->setParent(this);
+                QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
+            }
 
             for(QHash<int, int>::const_iterator it = m_signalIdxToRole.constBegin(); it != m_signalIdxToRole.constEnd();
                 ++it)
                 connect(item, item->metaObject()->method(it.key()), this, m_handler, Qt::UniqueConnection);
+
+            connect(item, &QObject::destroyed, this, [this, item](QObject*){
+                remove(item);
+            });
         }
     }
     void dereferenceItem(T* item)
@@ -233,6 +240,11 @@ public:
     const_reverse_iterator crbegin() const { return m_objects.crbegin(); }
     const_reverse_iterator crend() const { return m_objects.crend(); }
 
+    T* operator[] (const int index) const
+    {
+        return get(index);
+    }
+
     // ──────── PUBLIC C++ API ──────────
 public:
     T* at(int index) const
@@ -243,7 +255,7 @@ public:
     {
         if(index < 0 || index >= m_objects.size())
         {
-            qolmWarning() << templateClassName() << "The index" << index << "is out of bound.";
+            QMODELSLOG_WARNING() << templateClassName() << "The index" << index << "is out of bound.";
             return nullptr;
         }
         return m_objects.at(index);
@@ -257,13 +269,13 @@ public:
     {
         if(!object)
         {
-            qolmWarning() << templateClassName() << "Can't find the index of a nullptr QObject";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't find the index of a nullptr QObject";
             return -1;
         }
         const auto index = m_objects.indexOf(const_cast<T*>(object));
         if(index < 0)
         {
-            qolmWarning() << templateClassName() << "The QObject" << object << "isn't in this QObjectModel list.";
+            QMODELSLOG_WARNING() << templateClassName() << "The QObject" << object << "isn't in this QObjectModel list.";
         }
         return index;
     }
@@ -271,7 +283,7 @@ public:
     {
         if(object == nullptr)
         {
-            qolmWarning() << templateClassName() << "Can't append a null Object";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't append a null Object";
             return false;
         }
 
@@ -289,7 +301,7 @@ public:
     {
         if(object == nullptr)
         {
-            qolmWarning() << templateClassName() << "Can't prepend a null object";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't prepend a null object";
             return false;
         }
 
@@ -306,20 +318,20 @@ public:
     {
         if(index > count())
         {
-            qolmWarning() << templateClassName() << "index " << index << " is greater than count " << count() << ". "
+            QMODELSLOG_WARNING() << templateClassName() << "index " << index << " is greater than count " << count() << ". "
                        << "The item will be inserted at the end of the list";
             index = count();
         }
         else if(index < 0)
         {
-            qolmWarning() << templateClassName() << "index " << index << " is lower than 0. "
+            QMODELSLOG_WARNING() << templateClassName() << "index " << index << " is lower than 0. "
                        << "The item will be inserted at the beginning of the list";
             index = 0;
         }
 
         if(object == nullptr)
         {
-            qolmWarning() << templateClassName() << "Can't insert a null Object";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't insert a null Object";
             return false;
         }
 
@@ -336,7 +348,7 @@ public:
     {
         if(objectList.isEmpty())
         {
-            qolmWarning() << templateClassName() << "Can't append an empty list";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't append an empty list";
             return false;
         }
 
@@ -367,7 +379,7 @@ public:
     {
         if(objectList.isEmpty())
         {
-            qolmWarning() << templateClassName() << "Can't prepend an empty list";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't prepend an empty list";
             return false;
         }
 
@@ -399,7 +411,7 @@ public:
     {
         if(itemList.isEmpty())
         {
-            qolmWarning() << templateClassName() << "Can't insert an empty list";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't insert an empty list";
             return false;
         }
 
@@ -431,18 +443,18 @@ public:
     {
         if(from < 0 || from >= count())
         {
-            qolmWarning() << templateClassName() << "'From'" << from << "is out of bound";
+            QMODELSLOG_WARNING() << templateClassName() << "'From'" << from << "is out of bound";
             return false;
         }
 
         const auto clampedTo = std::clamp(to, 0, count() - 1);
         if(clampedTo != to)
         {
-            qolmWarning() << templateClassName() << "'to'" << to << " in move operation have been clamped to" << clampedTo;
+            QMODELSLOG_WARNING() << templateClassName() << "'to'" << to << " in move operation have been clamped to" << clampedTo;
             to = clampedTo;
             if(from == to)
             {
-                qolmWarning() << templateClassName() << "Can't move object from" << from << "to" << to << "because from == to";
+                QMODELSLOG_WARNING() << templateClassName() << "Can't move object from" << from << "to" << to << "because from == to";
                 return false;
             }
         }
@@ -461,7 +473,7 @@ public:
     {
         if(object == nullptr)
         {
-            qolmWarning() << templateClassName() << "Fail to remove nullptr object from QObjectModel<" << m_metaObj.className() << ">";
+            QMODELSLOG_WARNING() << templateClassName() << "Fail to remove nullptr object from QObjectModel<" << m_metaObj.className() << ">";
             return false;
         }
 
@@ -481,7 +493,7 @@ public:
     {
         if(index < 0 || (index + count - 1) >= m_objects.size())
         {
-            qolmWarning() << templateClassName() << "Can't remove an object whose index is out of bound";
+            QMODELSLOG_WARNING() << templateClassName() << "Can't remove an object whose index is out of bound";
             return false;
         }
 
@@ -541,7 +553,7 @@ public:
     {
         if(m_objects.isEmpty())
         {
-            qolmWarning() << templateClassName() << "The first element of an empty list doesn't exist !";
+            QMODELSLOG_WARNING() << templateClassName() << "The first element of an empty list doesn't exist !";
             return nullptr;
         }
 
@@ -551,7 +563,7 @@ public:
     {
         if(m_objects.isEmpty())
         {
-            qolmWarning() << templateClassName() << "The last element of an empty list doesn't exist !";
+            QMODELSLOG_WARNING() << templateClassName() << "The last element of an empty list doesn't exist !";
             return nullptr;
         }
 
@@ -568,11 +580,15 @@ public:
     QObject* at(QJSValue index) const override
     {
         const auto i = index.toInt();
+        if(i < 0 || i >= m_objects.size())
+            return nullptr;
         return get(i);
     }
     QObject* get(QJSValue index) const override
     {
         const auto i = index.toInt();
+        if(i < 0 || i >= m_objects.size())
+            return nullptr;
         return get(i);
     }
     bool append(QJSValue value) override final
@@ -586,7 +602,7 @@ public:
             }
             else
             {
-                qolmWarning() << templateClassName() << ": Fail to append" << value.toString() << ", item isn't a"
+                QMODELSLOG_WARNING() << templateClassName() << ": Fail to append" << value.toString() << ", item isn't a"
                            << m_metaObj.className() << "derived class";
                 return false;
             }
@@ -607,14 +623,14 @@ public:
                     }
                     else
                     {
-                        qolmWarning() << templateClassName() << ": Fail to append " << object.toString()
+                        QMODELSLOG_WARNING() << templateClassName() << ": Fail to append " << object.toString()
                                    << ", item isn't a" << m_metaObj.className() << "derived class";
                         return false;
                     }
                 }
                 else
                 {
-                    qolmWarning() << templateClassName() << ": Fail to append " << object.toString()
+                    QMODELSLOG_WARNING() << templateClassName() << ": Fail to append " << object.toString()
                                << ", item isn't QObject";
                     return false;
                 }
@@ -623,7 +639,7 @@ public:
                 return append(listToAppend);
         }
 
-        qolmWarning() << templateClassName() << ": Fail to append" << value.toString()
+        QMODELSLOG_WARNING() << templateClassName() << ": Fail to append" << value.toString()
                    << ", item isn't a QObject, an array of QObject";
         return false;
     }
@@ -638,7 +654,7 @@ public:
             }
             else
             {
-                qolmWarning() << templateClassName() << ": Fail to prepend" << value.toString() << ", item isn't a"
+                QMODELSLOG_WARNING() << templateClassName() << ": Fail to prepend" << value.toString() << ", item isn't a"
                            << m_metaObj.className() << "derived class";
                 return false;
             }
@@ -659,14 +675,14 @@ public:
                     }
                     else
                     {
-                        qolmWarning() << templateClassName() << ": Fail to prepend " << object.toString()
+                        QMODELSLOG_WARNING() << templateClassName() << ": Fail to prepend " << object.toString()
                                    << ", item isn't a" << m_metaObj.className() << "derived class";
                         return false;
                     }
                 }
                 else
                 {
-                    qolmWarning() << templateClassName() << ": Fail to prepend " << object.toString()
+                    QMODELSLOG_WARNING() << templateClassName() << ": Fail to prepend " << object.toString()
                                << ", item isn't QObject";
                     return false;
                 }
@@ -675,7 +691,7 @@ public:
                 return prepend(listToPrepend);
         }
 
-        qolmWarning() << templateClassName() << ": Fail to prepend" << value.toString()
+        QMODELSLOG_WARNING() << templateClassName() << ": Fail to prepend" << value.toString()
                    << ", item isn't a QObject, an array of QObject";
         return false;
     }
@@ -690,7 +706,7 @@ public:
             }
             else
             {
-                qolmWarning() << templateClassName() << ": Fail to insert" << value.toString() << ", item isn't a"
+                QMODELSLOG_WARNING() << templateClassName() << ": Fail to insert" << value.toString() << ", item isn't a"
                            << m_metaObj.className() << "derived class";
                 return false;
             }
@@ -711,14 +727,14 @@ public:
                     }
                     else
                     {
-                        qolmWarning() << templateClassName() << ": Fail to insert " << object.toString()
+                        QMODELSLOG_WARNING() << templateClassName() << ": Fail to insert " << object.toString()
                                    << ", item isn't a" << m_metaObj.className() << "derived class";
                         return false;
                     }
                 }
                 else
                 {
-                    qolmWarning() << templateClassName() << ": Fail to insert " << object.toString()
+                    QMODELSLOG_WARNING() << templateClassName() << ": Fail to insert " << object.toString()
                                << ", item isn't QObject";
                     return false;
                 }
@@ -727,7 +743,7 @@ public:
                 return insert(idx, listToInsert);
         }
 
-        qolmWarning() << templateClassName() << ": Fail to insert" << value.toString()
+        QMODELSLOG_WARNING() << templateClassName() << ": Fail to insert" << value.toString()
                    << ", item isn't a QObject, an array of QObject";
         return false;
     }
@@ -747,7 +763,7 @@ public:
             }
             else
             {
-                qolmWarning() << templateClassName() << ": Fail to remove" << value.toString() << ", item isn't a"
+                QMODELSLOG_WARNING() << templateClassName() << ": Fail to remove" << value.toString() << ", item isn't a"
                            << m_metaObj.className() << "derived class";
                 return false;
             }
@@ -768,14 +784,14 @@ public:
                     }
                     else
                     {
-                        qolmWarning() << templateClassName() << ": Fail to insert " << object.toString()
+                        QMODELSLOG_WARNING() << templateClassName() << ": Fail to insert " << object.toString()
                                    << ", item isn't a" << m_metaObj.className() << "derived class";
                         return false;
                     }
                 }
                 else
                 {
-                    qolmWarning() << templateClassName() << ": Fail to insert " << object.toString()
+                    QMODELSLOG_WARNING() << templateClassName() << ": Fail to insert " << object.toString()
                                << ", item isn't QObject";
                     return false;
                 }
@@ -784,7 +800,7 @@ public:
                 return remove(listToRemove);
         }
 
-        qolmWarning() << templateClassName() << ": Fail to remove" << value.toString()
+        QMODELSLOG_WARNING() << templateClassName() << ": Fail to remove" << value.toString()
                    << ", item isn't a QObject, an array of QObject or a number";
         return false;
     }
@@ -799,13 +815,13 @@ public:
             }
             else
             {
-                qolmWarning() << templateClassName() << ": Fail to get indexOf" << value.toString() << ", item isn't a"
+                QMODELSLOG_WARNING() << templateClassName() << ": Fail to get indexOf" << value.toString() << ", item isn't a"
                            << m_metaObj.className() << "derived class";
                 return false;
             }
         }
 
-        qolmWarning() << templateClassName() << ": Fail to get indexOf" << value.toString()
+        QMODELSLOG_WARNING() << templateClassName() << ": Fail to get indexOf" << value.toString()
                    << ", item isn't a QObject";
         return false;
     }
@@ -820,13 +836,13 @@ public:
             }
             else
             {
-                qolmWarning() << templateClassName() << ": Fail to get indexOf" << value.toString() << ", item isn't a"
+                QMODELSLOG_WARNING() << templateClassName() << ": Fail to get indexOf" << value.toString() << ", item isn't a"
                            << m_metaObj.className() << "derived class";
                 return -1;
             }
         }
 
-        qolmWarning() << templateClassName() << ": Fail to get indexOf" << value.toString()
+        QMODELSLOG_WARNING() << templateClassName() << ": Fail to get indexOf" << value.toString()
                    << ", item isn't a QObject";
         return -1;
     }
@@ -835,7 +851,7 @@ public:
         // Move index to index-1
         if(index <= 0 || index >= count())
         {
-            qolmWarning() << templateClassName() << "The index is the first of the list or index is out of bound";
+            QMODELSLOG_WARNING() << templateClassName() << "The index is the first of the list or index is out of bound";
             return false;
         }
 
@@ -849,7 +865,7 @@ public:
             index < (count() - 1))  // To the last one minus 1
         )
         {
-            qolmWarning() << templateClassName() << "The index is the last of the list or index is out of bound";
+            QMODELSLOG_WARNING() << templateClassName() << "The index is the last of the list or index is out of bound";
             return false;
         }
 
@@ -868,7 +884,7 @@ protected:
         }
         else
         {
-            qolmWarning() << templateClassName() << ": Fail to append default child " << child->objectName()
+            QMODELSLOG_WARNING() << templateClassName() << ": Fail to append default child " << child->objectName()
                        << ", that isn't a" << m_metaObj.className() << "derived class";
         }
     }
@@ -893,7 +909,7 @@ protected:
         const auto object = qobject_cast<T*>(child);
         if(!object)
         {
-            qolmWarning() << templateClassName() << ": Fail to append default child " << child->objectName()
+            QMODELSLOG_WARNING() << templateClassName() << ": Fail to append default child " << child->objectName()
                        << ", that isn't a" << m_metaObj.className() << "derived class";
         }
 
@@ -994,13 +1010,13 @@ public:
     {
         if(!receiver)
         {
-            qolmWarning() << "QObjectModel::onInserted: Fail to connect to nullptr receiver";
+            QMODELSLOG_WARNING() << "QObjectModel::onInserted: Fail to connect to nullptr receiver";
             return {};
         }
 
         if(!callback)
         {
-            qolmWarning() << "QObjectModel::onInserted: Fail to connect empty lambda";
+            QMODELSLOG_WARNING() << "QObjectModel::onInserted: Fail to connect empty lambda";
             return {};
         }
 
@@ -1016,7 +1032,7 @@ public:
     {
         if(!callback)
         {
-            qolmWarning() << "QObjectModel::onInserted: Fail to connect empty lambda";
+            QMODELSLOG_WARNING() << "QObjectModel::onInserted: Fail to connect empty lambda";
             return {};
         }
 
@@ -1035,13 +1051,13 @@ public:
     {
         if(!receiver)
         {
-            qolmWarning() << "QObjectModel::onRemoved: Fail to connect to nullptr receiver";
+            QMODELSLOG_WARNING() << "QObjectModel::onRemoved: Fail to connect to nullptr receiver";
             return {};
         }
 
         if(!callback)
         {
-            qolmWarning() << "QObjectModel::onRemoved: Fail to connect empty lambda";
+            QMODELSLOG_WARNING() << "QObjectModel::onRemoved: Fail to connect empty lambda";
             return {};
         }
 
@@ -1057,7 +1073,7 @@ public:
     {
         if(!callback)
         {
-            qolmWarning() << "QObjectModel::onRemoved: Fail to connect empty lambda";
+            QMODELSLOG_WARNING() << "QObjectModel::onRemoved: Fail to connect empty lambda";
             return {};
         }
 
@@ -1076,13 +1092,13 @@ public:
     {
         if(!receiver)
         {
-            qolmWarning() << "QObjectModel::onMoved: Fail to connect to nullptr receiver";
+            QMODELSLOG_WARNING() << "QObjectModel::onMoved: Fail to connect to nullptr receiver";
             return {};
         }
 
         if(!callback)
         {
-            qolmWarning() << "QObjectModel::onMoved: Fail to connect empty lambda";
+            QMODELSLOG_WARNING() << "QObjectModel::onMoved: Fail to connect empty lambda";
             return {};
         }
 
@@ -1100,6 +1116,8 @@ public:
     }
 
     // ──────── ATTRIBUTES ──────────
+protected:
+    QList<T*> m_objects;
 private:
     int m_count=0;
     QByteArray m_displayRoleName;
@@ -1107,7 +1125,6 @@ private:
     QMetaMethod m_handler;
     QHash<int, QByteArray> m_roleNames;
     QHash<int, int> m_signalIdxToRole;
-    QList<T*> m_objects;
     QList<T*> m_defaultObjects;
 };
 

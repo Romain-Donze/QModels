@@ -7,7 +7,7 @@ Installation
 ------------
 1. clone or download this repository
 2. add `include  (<path/to/QModels>/QModels.pri)` in your `.pro`
-3. `import Models 1.0` to use this library in your QML files
+3. `import Eco.Tier1.Models 1.0` to use this library in your QML files
 
 
 # QObjectListModel
